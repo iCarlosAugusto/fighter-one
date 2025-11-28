@@ -3,6 +3,9 @@
  */
 
 import type { 
+  profiles,
+  establishments,
+  establishmentAdmins,
   fighters, 
   fighterStats, 
   fights, 
@@ -13,6 +16,15 @@ import type {
 } from './schema';
 
 // Infer types from schema
+export type Profile = typeof profiles.$inferSelect;
+export type NewProfile = typeof profiles.$inferInsert;
+
+export type Establishment = typeof establishments.$inferSelect;
+export type NewEstablishment = typeof establishments.$inferInsert;
+
+export type EstablishmentAdmin = typeof establishmentAdmins.$inferSelect;
+export type NewEstablishmentAdmin = typeof establishmentAdmins.$inferInsert;
+
 export type Fighter = typeof fighters.$inferSelect;
 export type NewFighter = typeof fighters.$inferInsert;
 
@@ -35,6 +47,8 @@ export type WeightClass = typeof weightClasses.$inferSelect;
 export type NewWeightClass = typeof weightClasses.$inferInsert;
 
 // Enum types
+export type UserRole = 'fighter' | 'admin' | 'manager' | 'viewer';
+export type EstablishmentType = 'gym' | 'school' | 'academy' | 'federation' | 'promotion' | 'club' | 'other';
 export type FightStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
 export type FightResult = 'ko' | 'tko' | 'submission' | 'decision' | 'draw' | 'no_contest' | 'disqualification';
 export type ChampionshipStatus = 'draft' | 'registration_open' | 'in_progress' | 'completed' | 'cancelled';
@@ -42,6 +56,31 @@ export type ChampionshipType = 'single_elimination' | 'double_elimination' | 'ro
 export type Gender = 'male' | 'female' | 'other';
 
 // Extended types with relations
+export type ProfileWithFighter = Profile & {
+  fighter: Fighter | null;
+};
+
+export type ProfileWithEstablishments = Profile & {
+  establishmentAdminRoles: (EstablishmentAdmin & { establishment: Establishment })[];
+};
+
+export type EstablishmentWithAdmins = Establishment & {
+  admins: (EstablishmentAdmin & { user: Profile })[];
+};
+
+export type EstablishmentWithDetails = Establishment & {
+  admins: (EstablishmentAdmin & { user: Profile })[];
+  fighters: Fighter[];
+  championships: Championship[];
+};
+
+export type FighterWithUser = Fighter & {
+  user: Profile | null;
+  establishment: Establishment | null;
+  stats: FighterStats | null;
+  weightClass: WeightClass | null;
+};
+
 export type FighterWithStats = Fighter & {
   stats: FighterStats | null;
   weightClass: WeightClass | null;
@@ -56,6 +95,8 @@ export type FightWithDetails = Fight & {
 };
 
 export type ChampionshipWithDetails = Championship & {
+  establishment: Establishment;
+  creator: Profile | null;
   weightClass: WeightClass | null;
   participants: (ChampionshipParticipant & { fighter: Fighter })[];
   matches: (ChampionshipMatch & { fight: Fight })[];

@@ -8,6 +8,20 @@
       "when": 1764364522620,
       "tag": "0000_special_bug",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1764365337726,
+      "tag": "0001_clear_madame_hydra",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1764366183823,
+      "tag": "0002_confused_ultimates",
+      "breakpoints": true
     }
   ]
 }

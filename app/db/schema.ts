@@ -1,10 +1,12 @@
-import { pgTable, serial, text, varchar, timestamp, integer, decimal, boolean, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, varchar, timestamp, integer, decimal, boolean, pgEnum, uuid } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // ===========================
 // ENUMS
 // ===========================
 
+export const userRoleEnum = pgEnum('user_role', ['fighter', 'admin', 'manager', 'viewer']);
+export const establishmentTypeEnum = pgEnum('establishment_type', ['gym', 'school', 'academy', 'federation', 'promotion', 'club', 'other']);
 export const fightStatusEnum = pgEnum('fight_status', ['scheduled', 'in_progress', 'completed', 'cancelled']);
 export const fightResultEnum = pgEnum('fight_result', ['ko', 'tko', 'submission', 'decision', 'draw', 'no_contest', 'disqualification']);
 export const championshipStatusEnum = pgEnum('championship_status', ['draft', 'registration_open', 'in_progress', 'completed', 'cancelled']);
@@ -14,6 +16,88 @@ export const genderEnum = pgEnum('gender', ['male', 'female', 'other']);
 // ===========================
 // CORE TABLES
 // ===========================
+
+// User Profiles Table (mirrors Supabase auth.users)
+// This table is in the public schema and links to auth.users
+export const profiles = pgTable('profiles', {
+  id: uuid('id').primaryKey(), // References auth.users(id)
+  email: varchar('email', { length: 256 }).unique().notNull(),
+  fullName: varchar('full_name', { length: 256 }),
+  avatarUrl: text('avatar_url'),
+  role: userRoleEnum('role').default('viewer').notNull(),
+  
+  // Additional user metadata
+  phoneNumber: varchar('phone_number', { length: 50 }),
+  isActive: boolean('is_active').default(true).notNull(),
+  
+  // Timestamps
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Establishments Table (Gyms, Schools, Organizations)
+export const establishments = pgTable('establishments', {
+  id: serial('id').primaryKey(),
+  
+  // Basic info
+  name: varchar('name', { length: 256 }).notNull(),
+  shortName: varchar('short_name', { length: 100 }), // e.g., "Alpha Gym" vs "Alpha MMA & Fitness"
+  type: establishmentTypeEnum('type').notNull(),
+  description: text('description'),
+  
+  // Contact info
+  email: varchar('email', { length: 256 }),
+  phone: varchar('phone', { length: 50 }),
+  website: text('website'),
+  
+  // Location
+  address: text('address'),
+  city: varchar('city', { length: 100 }),
+  state: varchar('state', { length: 100 }),
+  country: varchar('country', { length: 100 }).notNull(),
+  zipCode: varchar('zip_code', { length: 20 }),
+  
+  // Geographic coordinates (for maps)
+  latitude: decimal('latitude', { precision: 10, scale: 8 }),
+  longitude: decimal('longitude', { precision: 11, scale: 8 }),
+  
+  // Branding
+  logoUrl: text('logo_url'),
+  bannerUrl: text('banner_url'),
+  
+  // Status
+  isActive: boolean('is_active').default(true).notNull(),
+  isVerified: boolean('is_verified').default(false).notNull(), // Verified by platform admins
+  
+  // Metadata
+  foundedDate: timestamp('founded_date'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Establishment Admins (Many-to-Many: users ↔ establishments)
+export const establishmentAdmins = pgTable('establishment_admins', {
+  id: serial('id').primaryKey(),
+  
+  establishmentId: integer('establishment_id').references(() => establishments.id, { onDelete: 'cascade' }).notNull(),
+  userId: uuid('user_id').references(() => profiles.id, { onDelete: 'cascade' }).notNull(),
+  
+  // Role within establishment
+  role: varchar('role', { length: 50 }).default('admin').notNull(), // admin, manager, staff
+  
+  // Permissions
+  canCreateChampionships: boolean('can_create_championships').default(true).notNull(),
+  canManageFighters: boolean('can_manage_fighters').default(true).notNull(),
+  canScheduleFights: boolean('can_schedule_fights').default(true).notNull(),
+  
+  // Status
+  isActive: boolean('is_active').default(true).notNull(),
+  
+  // Metadata
+  joinedAt: timestamp('joined_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
 
 // Weight Classes Table
 export const weightClasses = pgTable('weight_classes', {
@@ -31,6 +115,13 @@ export const weightClasses = pgTable('weight_classes', {
 // Fighters Table (renamed from athletes for domain clarity)
 export const fighters = pgTable('fighters', {
   id: serial('id').primaryKey(),
+  
+  // Link to Supabase auth user (optional - allows fighters without accounts)
+  userId: uuid('user_id').unique().references(() => profiles.id, { onDelete: 'set null' }),
+  
+  // Link to establishment/gym (optional)
+  establishmentId: integer('establishment_id').references(() => establishments.id, { onDelete: 'set null' }),
+  
   name: varchar('name', { length: 256 }).notNull(),
   nickname: varchar('nickname', { length: 100 }),
   email: varchar('email', { length: 256 }).unique(),
@@ -146,6 +237,12 @@ export const fights = pgTable('fights', {
 export const championships = pgTable('championships', {
   id: serial('id').primaryKey(),
   
+  // Establishment link (required - only establishments can create championships)
+  establishmentId: integer('establishment_id').references(() => establishments.id, { onDelete: 'cascade' }).notNull(),
+  
+  // Creator
+  createdByUserId: uuid('created_by_user_id').references(() => profiles.id, { onDelete: 'set null' }),
+  
   // Basic info
   name: varchar('name', { length: 256 }).notNull(),
   description: text('description'),
@@ -227,6 +324,32 @@ export const championshipMatches = pgTable('championship_matches', {
 // RELATIONS
 // ===========================
 
+export const profilesRelations = relations(profiles, ({ one, many }) => ({
+  fighter: one(fighters, {
+    fields: [profiles.id],
+    references: [fighters.userId],
+  }),
+  establishmentAdminRoles: many(establishmentAdmins),
+  createdChampionships: many(championships, { relationName: 'championshipCreator' }),
+}));
+
+export const establishmentsRelations = relations(establishments, ({ many }) => ({
+  admins: many(establishmentAdmins),
+  fighters: many(fighters),
+  championships: many(championships),
+}));
+
+export const establishmentAdminsRelations = relations(establishmentAdmins, ({ one }) => ({
+  establishment: one(establishments, {
+    fields: [establishmentAdmins.establishmentId],
+    references: [establishments.id],
+  }),
+  user: one(profiles, {
+    fields: [establishmentAdmins.userId],
+    references: [profiles.id],
+  }),
+}));
+
 export const weightClassesRelations = relations(weightClasses, ({ many }) => ({
   fighters: many(fighters),
   fights: many(fights),
@@ -234,6 +357,14 @@ export const weightClassesRelations = relations(weightClasses, ({ many }) => ({
 }));
 
 export const fightersRelations = relations(fighters, ({ one, many }) => ({
+  user: one(profiles, {
+    fields: [fighters.userId],
+    references: [profiles.id],
+  }),
+  establishment: one(establishments, {
+    fields: [fighters.establishmentId],
+    references: [establishments.id],
+  }),
   weightClass: one(weightClasses, {
     fields: [fighters.weightClassId],
     references: [weightClasses.id],
@@ -283,6 +414,15 @@ export const fightsRelations = relations(fights, ({ one }) => ({
 }));
 
 export const championshipsRelations = relations(championships, ({ one, many }) => ({
+  establishment: one(establishments, {
+    fields: [championships.establishmentId],
+    references: [establishments.id],
+  }),
+  creator: one(profiles, {
+    fields: [championships.createdByUserId],
+    references: [profiles.id],
+    relationName: 'championshipCreator',
+  }),
   weightClass: one(weightClasses, {
     fields: [championships.weightClassId],
     references: [weightClasses.id],
